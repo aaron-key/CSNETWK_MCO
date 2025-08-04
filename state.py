@@ -1,3 +1,8 @@
 peers = {}  # USER_ID -> display_name, status
-posts = []  # list of {user_id, content}
+# posts = []  # list of {user_id, content}
 dms = []    # list of {from, to, content}
+file_offers = {} # FILE_ID -> from, filename
+incoming_files = {} # FILE_ID -> metadata, received_chunks
+posts = {}
+groups = {}
+tictactoe_games = {}
