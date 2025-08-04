@@ -10,6 +10,13 @@ def process_creategroup(cmd, sock, args):
         _, group_id, group_name, members_str = cmd.split(' ', 3)
         initial_members = set(m.strip() for m in members_str.split(','))
         initial_members.add(args.id)
+
+        state.groups[group_id] = {
+            "group_name": group_name,
+            "members": initial_members,
+            "creator": args.id
+        }
+
         fields = {
             "TYPE": "GROUP_CREATE", 
             "FROM": args.id, 
@@ -71,8 +78,8 @@ def process_gmsg(cmd, sock, args):
             for member_id in state.groups[group_id]['members']:
                 ip = member_id.split('@')[1]
                 send_message(sock, message, ip, args.verbose)
-            else:
-                print("Error: You are not a member of that group or the group does not exist.")
+        else:
+            print("Error: You are not a member of that group or the group does not exist.")
     except ValueError:
         print("Usage: gmsg <group_id> <message>")
 

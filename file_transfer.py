@@ -16,7 +16,7 @@ def assemble_and_save_file(file_id, sock, args):
         return
     
     file_info = state.incoming_files[file_id]
-    metadata = file_info('metadata')
+    metadata = file_info['metadata']
     filename = metadata['FILENAME']
 
     # place files in a separate "downloads" folder
@@ -88,7 +88,7 @@ def initiate_file_transfer(sock, from_id, to_id, filepath, verbose):
     # read the file and send in chunks
     try:
         with open(filepath, 'rb') as f:
-            total_chunks = (filesize + CHUNK_DATA_SIZE - 1)
+            total_chunks = (filesize + CHUNK_DATA_SIZE - 1) // CHUNK_DATA_SIZE
             chunk_index = 0
             while True:
                 chunk_data = f.read(CHUNK_DATA_SIZE)

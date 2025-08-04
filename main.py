@@ -2,7 +2,6 @@ import argparse
 import threading
 from network import create_socket, receive_loop, send_message
 from parser import parse_message, build_message
-from parser import build_message
 import uuid
 import time
 import state
@@ -43,13 +42,20 @@ def handle_message(raw, addr, sock, args):
         status = msg.get("STATUS", "")
         state.peers[user_id] = (display, status)
         print(f"[PROFILE] {display} — {status}")
-    
+
     elif msg_type == "POST":
         user_id = msg.get("USER_ID")
         content = msg.get("CONTENT", "")
-        state.posts.append((user_id, content))
-        display = state.peers.get(user_id, (user_id,))[0]
-        print(f"[POST] {display}: {content}")
+        timestamp = msg.get("TIMESTAMP")
+        if user_id and timestamp:
+            post_key = (user_id, timestamp)
+            if post_key not in state.posts:
+                state.posts[post_key] = {
+                    'content': content,
+                    'likes': set()
+                }
+                display = state.peers.get(user_id, (user_id,))[0]
+                print(f"[POST] {display}: {content}")
 
     elif msg_type == "DM":
         from_id = msg.get("FROM")
@@ -144,6 +150,12 @@ def main():
             cmd = input("> ").strip()
             if cmd.startswith("post "):
                 content = cmd[5:]
+                timestamp = str(int(time.time()))
+                post_key = (args.id, timestamp)
+                state.posts[post_key] = {
+                    'content': content,
+                    'likes': set()
+                }
                 fields = {
                     "TYPE": "POST",
                     "USER_ID": args.id,
@@ -153,6 +165,13 @@ def main():
                     "TOKEN": f"{args.id}|9999999999|broadcast"
                 }
                 send_message(sock, build_message(fields), '<broadcast>', args.verbose)
+
+            elif cmd == "ping":
+                ping_fields = {
+                    "TYPE": "PING",
+                    "USER_ID": args.id
+                }
+                send_message(sock, build_message(ping_fields), "<broadcast>", args.verbose)
 
             elif cmd.startswith("dm "):
                 parts = cmd.split(' ', 2)
@@ -269,6 +288,8 @@ def main():
             elif cmd == "help":
                 print("Available commands:\n"
                       "  post <message>          - Post a public message.\n"
+                      "  ping                    - Sends a broadcast ping .\n"
+                      "  dm <user> <message>     - Sends a private message to a user.\n"
                       "  timeline                - View recent posts.\n"
                       "  like <index>            - Like a post from the timeline.\n"
                       "  unlike <index>          - Unlike a post from the timeline.\n"

@@ -48,7 +48,7 @@ def initiate_game(sock, my_id, opponent_id, verbose):
         "FROM": my_id, 
         "TO": opponent_id,
         "GAMEID": game_id, 
-        "SYMBOL": my_symbol, 
+        "SYMBOL": opponent_symbol, 
         "TIMESTAMP": "9999", 
         "MESSAGE_ID": "msgidttt1"
     }
@@ -121,13 +121,17 @@ def process_move(cmd, sock, args):
 # --- handle game messages
 
 def handle_invite(msg):
+    # --- Start of Changed Code ---
     game_id = msg.get("GAMEID")
-    game_id = msg.get("GAMEID")
-    from_id = msg.get("FROM")
-    opponent_symbol = msg.get("SYMBOL")
-    my_id = msg.get("TO")
-    my_symbol = 'O' if opponent_symbol == 'X' else 'X'
-    turn = my_id # invitee starts first
+    from_id = msg.get("FROM") # person who started the game
+    my_id = msg.get("TO")     # person (you) who accepted the game
+
+    # The SYMBOL field contains user's (invitee's) symnbol
+    my_symbol = msg.get("SYMBOL")
+    opponent_symbol = 'O' if my_symbol == 'X' else 'X'
+
+    # invitee goes first
+    turn = my_id
 
     state.tictactoe_games[game_id] = {
         'board': [''] * 9,
