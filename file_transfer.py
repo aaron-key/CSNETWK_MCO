@@ -12,14 +12,18 @@ from parser import build_message
 CHUNK_DATA_SIZE = 1024
 
 def assemble_and_save_file(file_id, sock, args):
+    # receives file chunks and reassembles them
+
+    # check if file_id is an incoming_file
     if file_id not in state.incoming_files:
         return
     
+    # prepare file information
     file_info = state.incoming_files[file_id]
     metadata = file_info['metadata']
     filename = metadata['FILENAME']
 
-    # place files in a separate "downloads" folder
+    # place received file in a separate "/downloads" folder
     download_dir = 'downloads'
     if not os.path.exists(download_dir):
         os.makedirs(download_dir)
@@ -29,14 +33,15 @@ def assemble_and_save_file(file_id, sock, args):
     # sort chunks by index and combine
     try: 
         with open(filepath, 'wb') as f:
+            # sort chunks by index and write them to a new file
             sorted_chunks = sorted(file_info['received_chunks'].items())
-            for index, chunk_data in sorted_chunks:
+            for chunk_data in sorted_chunks:
                 f.write(chunk_data)
 
-            # indicate file transfer complete
+            # announce success of receiving file
             print(f"\nFile transfer of '{filename}' is complete. Saved to {filepath}")
 
-            # send a FILE_RECEIVED confirmation back to sender
+            # send a FILE_RECEIVED msg back to sender
             receipt_fields = {
                 "TYPE": "FILE_RECEIVED",
                 "FROM": args.id,
@@ -51,16 +56,17 @@ def assemble_and_save_file(file_id, sock, args):
     except Exception as e:
         print(f"\n[ERROR] Could not save file {filename}: {e}")
     finally:
-        # clean up state for file tranfer
+        # remove file from incoming files list
         del state.incoming_files[file_id]
         print(f"> ", end="", flush=True)
 
 def initiate_file_transfer(sock, from_id, to_id, filepath, verbose):
+    # prepares file for transfer
     if not os.path.exists(filepath):
         print(f"[ERROR] File not found: {filepath}")
         return
     
-    # preparing file metadata
+    # prepare file metadata
     filename = os.path.basename(filepath)
     filesize = os.path.getsize(filepath)
     filetype, _ = mimetypes.guess_type(filepath)
@@ -68,7 +74,7 @@ def initiate_file_transfer(sock, from_id, to_id, filepath, verbose):
         filetype = 'application/octet-stream'
     file_id = uuid.uuid4().hex[:8]
 
-    # send FILE_OFFER
+    # prepare FILE_OFFER msg
     offer_fields = {
         "TYPE": "FILE_OFFER", 
         "FROM": from_id, 
@@ -88,13 +94,17 @@ def initiate_file_transfer(sock, from_id, to_id, filepath, verbose):
     # read the file and send in chunks
     try:
         with open(filepath, 'rb') as f:
+            # calculate no. of chunks needed for the file
             total_chunks = (filesize + CHUNK_DATA_SIZE - 1) // CHUNK_DATA_SIZE
             chunk_index = 0
+
+            # continuously read chunks
             while True:
                 chunk_data = f.read(CHUNK_DATA_SIZE)
                 if not chunk_data:
                     break       # end of file
 
+                # prepare and send FILE_CHUNK msg
                 chunk_fields = {
                     "TYPE": "FILE_CHUNK", 
                     "FROM": from_id, 
@@ -108,7 +118,7 @@ def initiate_file_transfer(sock, from_id, to_id, filepath, verbose):
                 }
                 send_message(sock, build_message(chunk_fields), ip, verbose)
                 chunk_index += 1
-                time.sleep(0.01)
+                time.sleep(0.01)        # added delay
         utils.log(f"Finished sending all {total_chunks} chunks for file {file_id}.", "SEND")
     except Exception as e:
         print(f"[ERROR] Failed to send file: {e}")

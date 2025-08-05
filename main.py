@@ -162,7 +162,7 @@ def main():
                     "CONTENT": content,
                     "TTL": 3600,
                     "MESSAGE_ID": "msgid123",
-                    "TOKEN": f"{args.id}|9999999999|broadcast"
+                    "TOKEN": f"{args.id}|{timestamp}|broadcast"
                 }
                 send_message(sock, build_message(fields), '<broadcast>', args.verbose)
 
