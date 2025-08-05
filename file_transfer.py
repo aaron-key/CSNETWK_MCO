@@ -12,61 +12,49 @@ from parser import build_message
 CHUNK_DATA_SIZE = 1024
 
 def assemble_and_save_file(file_id, sock, args):
-    # receives file chunks and reassembles them
-
-    # check if file_id is an incoming_file
     if file_id not in state.incoming_files:
         return
-    
-    # prepare file information
+
     file_info = state.incoming_files[file_id]
     metadata = file_info['metadata']
     filename = metadata['FILENAME']
 
-    # place received file in a separate "/downloads" folder
     download_dir = 'downloads'
     if not os.path.exists(download_dir):
         os.makedirs(download_dir)
 
     filepath = os.path.join(download_dir, filename)
 
-    # sort chunks by index and combine
     try: 
         with open(filepath, 'wb') as f:
-            # sort chunks by index and write them to a new file
             sorted_chunks = sorted(file_info['received_chunks'].items())
-            for chunk_data in sorted_chunks:
+            for _, chunk_data in sorted_chunks:
                 f.write(chunk_data)
 
-            # announce success of receiving file
-            print(f"\nFile transfer of '{filename}' is complete. Saved to {filepath}")
+        print(f"\nFile transfer of '{filename}' is complete. Saved to {filepath}")
 
-            # send a FILE_RECEIVED msg back to sender
-            receipt_fields = {
-                "TYPE": "FILE_RECEIVED",
-                "FROM": args.id,
-                "TO": metadata['FROM'],
-                "FILEID": file_id,
-                "STATUS": "COMPLETE",
-                "TIMESTAMP": str(int(time.time()))
-            }
-            ip = metadata['FROM'].split('@')[1]
-            send_message(sock, build_message(receipt_fields), ip, args.verbose)
+        receipt_fields = {
+            "TYPE": "FILE_RECEIVED",
+            "FROM": args.id,
+            "TO": metadata['TO'],
+            "FILEID": file_id,
+            "STATUS": "COMPLETE",
+            "TIMESTAMP": str(int(time.time()))
+        }
+        ip = metadata['FROM'].split('@')[1]
+        send_message(sock, build_message(receipt_fields), ip, args.verbose)
 
     except Exception as e:
         print(f"\n[ERROR] Could not save file {filename}: {e}")
     finally:
-        # remove file from incoming files list
         del state.incoming_files[file_id]
         print(f"> ", end="", flush=True)
 
-def initiate_file_transfer(sock, from_id, to_id, filepath, verbose):
-    # prepares file for transfer
+def initiate_file_offer(sock, from_id, to_id, filepath, verbose):
     if not os.path.exists(filepath):
         print(f"[ERROR] File not found: {filepath}")
         return
-    
-    # prepare file metadata
+
     filename = os.path.basename(filepath)
     filesize = os.path.getsize(filepath)
     filetype, _ = mimetypes.guess_type(filepath)
@@ -74,42 +62,45 @@ def initiate_file_transfer(sock, from_id, to_id, filepath, verbose):
         filetype = 'application/octet-stream'
     file_id = uuid.uuid4().hex[:8]
 
-    # prepare FILE_OFFER msg
     offer_fields = {
-        "TYPE": "FILE_OFFER", 
-        "FROM": from_id, 
+        "TYPE": "FILE_OFFER",
+        "FROM": from_id,
         "TO": to_id,
-        "FILENAME": filename, 
-        "FILESIZE": filesize, 
+        "FILENAME": filename,
+        "FILESIZE": filesize,
         "FILETYPE": filetype,
-        "FILEID": file_id, 
+        "FILEID": file_id,
         "DESCRIPTION": "Oh look a file",
         "TIMESTAMP": str(int(time.time())),
         "TOKEN": f"{from_id}|{int(time.time()) + 3600}|file"
     }
     ip = to_id.split('@')[1]
     send_message(sock, build_message(offer_fields), ip, verbose)
-    print(f"Send file offer for '{filename}' to {to_id}.")
+    print(f"Sent file offer for '{filename}' to {to_id}")
 
-    # read the file and send in chunks
+    # Store for sending later
+    state.outgoing_files[file_id] = {
+        'filepath': filepath,
+        'to_id': to_id
+    }
+
+def send_file_chunks(file_id, sock, from_id, to_id, filepath, verbose):
     try:
-        with open(filepath, 'rb') as f:
-            # calculate no. of chunks needed for the file
-            total_chunks = (filesize + CHUNK_DATA_SIZE - 1) // CHUNK_DATA_SIZE
-            chunk_index = 0
+        filesize = os.path.getsize(filepath)
+        total_chunks = (filesize + CHUNK_DATA_SIZE - 1) // CHUNK_DATA_SIZE
+        chunk_index = 0
+        ip = to_id.split('@')[1]
 
-            # continuously read chunks
+        with open(filepath, 'rb') as f:
             while True:
                 chunk_data = f.read(CHUNK_DATA_SIZE)
                 if not chunk_data:
-                    break       # end of file
-
-                # prepare and send FILE_CHUNK msg
+                    break
                 chunk_fields = {
-                    "TYPE": "FILE_CHUNK", 
-                    "FROM": from_id, 
+                    "TYPE": "FILE_CHUNK",
+                    "FROM": from_id,
                     "TO": to_id,
-                    "FILEID": file_id, 
+                    "FILEID": file_id,
                     "CHUNK_INDEX": chunk_index,
                     "TOTAL_CHUNKS": total_chunks,
                     "CHUNK_SIZE": len(chunk_data),
@@ -118,12 +109,28 @@ def initiate_file_transfer(sock, from_id, to_id, filepath, verbose):
                 }
                 send_message(sock, build_message(chunk_fields), ip, verbose)
                 chunk_index += 1
-                time.sleep(0.01)        # added delay
-        utils.log(f"Finished sending all {total_chunks} chunks for file {file_id}.", "SEND")
-    except Exception as e:
-        print(f"[ERROR] Failed to send file: {e}")
+                time.sleep(0.01)
 
-# --- handling incoming file-related messages
+        print(f"Finished sending {total_chunks} chunks for file '{filepath}'")
+
+    except Exception as e:
+        print(f"[ERROR] Failed to send chunks for file '{filepath}': {e}")
+
+def handle_file_accepted(msg, sock, args):
+    file_id = msg.get("FILEID")
+    from_id = args.id
+    to_id = msg.get("FROM")
+
+    if file_id in state.outgoing_files:
+        file_info = state.outgoing_files.pop(file_id)
+        filepath = file_info['filepath']
+        threading.Thread(
+            target=send_file_chunks,
+            args=(file_id, sock, from_id, to_id, filepath, args.verbose),
+            daemon=True
+        ).start()
+    else:
+        print(f"[WARN] Received FILE_ACCEPTED for unknown file ID: {file_id}")
 
 def handle_file_offer(msg):
     file_id = msg.get("FILEID")
@@ -134,10 +141,9 @@ def handle_file_offer(msg):
     state.file_offers[file_id] = msg
     display = state.peers.get(from_id, (from_id))[0]
 
-    # prompt user to accept file
     print(f"\nUser {display} is sending you a file: '{filename}' ({filesize} bytes).")
     print(f"To accept, type: accept {file_id}")
-    print(f"> ", end="", flush=True) 
+    print(f"> ", end="", flush=True)
 
 def handle_file_chunk(msg, sock, args):
     file_id = msg.get("FILEID")
@@ -159,18 +165,20 @@ def handle_file_received(msg):
     status = msg.get("STATUS")
     file_id = msg.get("FILEID")
     display = state.peers.get(from_id, (from_id))[0]
-    utils.log(f"User {display} confirmed 'status' for file {file_id}", "INFO")
-
-# --- handling user commands
+    utils.log(f"User {display} confirmed file received: {file_id}", "INFO")
 
 def process_sendfile(cmd, sock, args):
     try:
         _, to_id, filepath = cmd.split(' ', 2)
-        threading.Thread(target = initiate_file_transfer, args = (sock, args.id, to_id, filepath, args.verbose), daemon = True).start()
+        threading.Thread(
+            target=initiate_file_offer,
+            args=(sock, args.id, to_id, filepath, args.verbose),
+            daemon=True
+        ).start()
     except ValueError:
         print("Usage: sendfile <user_id> <path_to_file>")
 
-def process_accept(cmd):
+def process_accept(cmd, sock, args):
     try:
         _, file_id_to_accept = cmd.split(' ', 1)
         if file_id_to_accept in state.file_offers:
@@ -180,7 +188,17 @@ def process_accept(cmd):
                 'received_chunks': {},
                 'total_chunks': 0
             }
-            print(f"Accepted file trasnfer for '{offer['FILENAME']}'. Waiting for chunks...")
+            print(f"Accepted file transfer for '{offer['FILENAME']}'. Waiting for chunks...")
+
+            accept_fields = {
+                "TYPE": "FILE_ACCEPTED",
+                "FROM": args.id,
+                "TO": offer['FROM'],
+                "FILEID": file_id_to_accept,
+                "TIMESTAMP": str(int(time.time()))
+            }
+            ip = offer['FROM'].split('@')[1]
+            send_message(sock, build_message(accept_fields), ip, args.verbose)
         else:
             print("Invalid or expired file offer ID.")
     except ValueError:

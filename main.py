@@ -118,6 +118,8 @@ def handle_message(raw, addr, sock, args):
         file_transfer.handle_file_chunk(msg, sock, args)
     elif msg_type == "FILE_RECEIVED":
         file_transfer.handle_file_received(msg)
+    elif msg_type == "FILE ACCEPTED":
+        file_transfer.handle_file_accepted(msg, sock, args)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -239,7 +241,7 @@ def main():
             elif cmd.startswith("sendfile "):
                 file_transfer.process_sendfile(cmd, sock, args)
             elif cmd.startswith("accept "):
-                file_transfer.process_accept(cmd)
+                file_transfer.process_accept(cmd, sock, args)
                 
             # --- liking posts
             elif cmd.startswith("timeline"):

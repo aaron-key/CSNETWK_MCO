@@ -32,7 +32,7 @@ def initiate_game(sock, my_id, opponent_id, verbose):
     my_symbol = random.choice(['X', 'O'])
     opponent_symbol = 'O' if my_symbol == 'X' else 'X'
 
-    turn = opponent_id
+    turn = 0
 
     state.tictactoe_games[game_id] = {
         'board': [''] * 9,
@@ -74,9 +74,9 @@ def process_move(cmd, sock, args):
     if game['status'] == 'finished':
         print("Error: This game is already over.")
         return
-    if game['turn'] != args.id:
-        print("Error: It's not your turn")
-        return
+    # if game['turn'] != args.id:
+    #     print("Error: It's not your turn")
+    #     return
     if not (0 <= position <= 8 and game['board'][position] == ''):
         print("Error: Invalid or occupied position.")
         return
@@ -89,23 +89,26 @@ def process_move(cmd, sock, args):
     winning_line = check_win(game['board'], game['my_symbol'])
     if winning_line:
         result_type = "TICTACTOE_RESULT"
-        result_type = {
+        result_fields = {
             "RESULT": "WIN", 
             "WINNING_LINE": winning_line, 
             "SYMBOL": game['my_symbol']
         }
-        print("You won!")
+        print("Game Over!")
+        print_board(game['board'])
     elif check_draw(game['board']):
         result_type = "TICTACTOE_RESULT"
         result_fields = {"RESULT": "DRAW"}
         print("It's a draw!")
     else:
+        game['turn'] += 1
         result_type = "TICTACTOE_MOVE"
         result_fields = {
             "POSITION": position, 
-            "SYMBOL": game['my_symbol']
+            "SYMBOL": game['my_symbol'],
+            "TURN": game['turn']
         }
-        game['turn'] = game['opponent']
+
 
     # send message
     fields = {
@@ -131,7 +134,7 @@ def handle_invite(msg):
     opponent_symbol = 'O' if my_symbol == 'X' else 'X'
 
     # invitee goes first
-    turn = my_id
+    turn = 1
 
     state.tictactoe_games[game_id] = {
         'board': [''] * 9,
@@ -151,9 +154,10 @@ def handle_move(msg):
         game = state.tictactoe_games[game_id]
         position = int(msg.get("POSITION"))
         symbol = msg.get("SYMBOL")
+        turn = msg.get("TURN")
 
         game['board'][position] = symbol
-        game['turn'] = msg.get("TO")
+        game['turn'] = turn + 1
         game['status'] = 'active'
 
         print(f"\nMove received for game {game_id}.")

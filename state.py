@@ -6,3 +6,5 @@ incoming_files = {} # FILE_ID -> metadata, received_chunks
 posts = {}
 groups = {}
 tictactoe_games = {}
+pending_file_sends = {}
+outgoing_files = {}
